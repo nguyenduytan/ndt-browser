@@ -454,3 +454,13 @@ characters and scroll increments up to 20 steps. It is not randomized mouse-path
 simulation or a detection guarantee. It affects session.click/type/scroll only;
 native page methods stay unchanged. type appends text. Proxy URL credentials are
 percent-decoded and removed from the browser launch endpoint.
+
+## v0.2 automation helpers
+
+Use `session.goto(url, { readySelector, timeout, signal, onState })` for navigation plus visible readiness. States: checking/challenge/ready/timeout. Native page APIs remain unchanged.
+
+`humanize: true` enables explicit pacing for session.click/type/scroll: 70 ms click hold, 60 ms typing interval and at most 20 scroll steps. No randomized mouse path or detection guarantee. type appends text.
+
+Proxy accepts `http://user:pass@host:port`. Credentials are decoded and removed from launch arguments. Cancellation bounds waiting but cannot undo an already dispatched browser action; close the owned page to stop remaining work.
+
+Tiếng Việt: goto dùng chung deadline và chờ selector hiển thị; humanize chỉ điều chỉnh nhịp click/gõ/cuộn. Proxy nhận URL chứa credentials. Hủy chờ không hoàn tác lệnh browser đã gửi.

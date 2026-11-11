@@ -74,7 +74,7 @@ display; server không có display có thể dùng `headless: true`.
 Cài trực tiếp archive của GitHub Release, không phụ thuộc npm registry:
 
 ```bash
-npm install https://github.com/nguyenduytan/ndt-browser/releases/download/v0.1.0/nguyenduytan-ndt-browser-0.1.0.tgz
+npm install https://github.com/nguyenduytan/ndt-browser/releases/download/v0.2.0/nguyenduytan-ndt-browser-0.2.0.tgz
 ```
 
 Tạo `scrape.mjs`:
@@ -396,11 +396,17 @@ Docker; không cần gọi website production hoặc provider trả phí.
 
 ## Tham khảo và phạm vi
 
-Tham khảo kiến trúc [Puppeteer Real Browser](https://github.com/ZFC-Digital/puppeteer-real-browser),
-[Scrapling](https://github.com/D4Vinci/Scrapling) và
-[CloakBrowser](https://github.com/CloakHQ/CloakBrowser). Code NDT viết riêng, không đóng
-gói source hoặc binary của các dự án đó. Dependency là Playwright Core và Puppeteer
-Core. Code NDT dùng MIT; browser binary giữ license riêng.
+
 
 NDT là SDK local cho người gọi tin cậy, **không phải public scraping endpoint có sandbox**.
 Xem [SECURITY.md](SECURITY.md) và [release notes](CHANGELOG.md).
+
+## v0.2 automation helpers
+
+Use `session.goto(url, { readySelector, timeout, signal, onState })` for navigation plus visible readiness. States: checking/challenge/ready/timeout. Native page APIs remain unchanged.
+
+`humanize: true` enables explicit pacing for session.click/type/scroll: 70 ms click hold, 60 ms typing interval and at most 20 scroll steps. No randomized mouse path or detection guarantee. type appends text.
+
+Proxy accepts `http://user:pass@host:port`. Credentials are decoded and removed from launch arguments. Cancellation bounds waiting but cannot undo an already dispatched browser action; close the owned page to stop remaining work.
+
+Tiếng Việt: goto dùng chung deadline và chờ selector hiển thị; humanize chỉ điều chỉnh nhịp click/gõ/cuộn. Proxy nhận URL chứa credentials. Hủy chờ không hoàn tác lệnh browser đã gửi.

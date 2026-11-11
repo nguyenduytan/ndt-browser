@@ -36,7 +36,7 @@ for (const driver of ['puppeteer', 'playwright']) {
     const second = await session.newPage();
     await second.goto(site.url);
     assert.equal(await second.evaluate(() => innerWidth), 1200);
-    await assert.rejects(session.request(`${site.url}/slow`, { timeout: 100 }), /timeout|abort/i);
+    await assert.rejects(session.request(`${site.url}/slow`, { timeout: 100 }), /timeout|timed out|abort/i);
     await assert.rejects(session.request(`${site.url}/large`, { maxBytes: 128 }), /limit|bytes/i);
     await assert.rejects(session.request('file:///etc/passwd'), /HTTP/i);
     await assert.rejects(session.request(`${site.url}/api`, { method: 'GET', json: {} }), /body|GET/i);

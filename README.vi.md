@@ -74,7 +74,7 @@ display; server không có display có thể dùng `headless: true`.
 Cài trực tiếp archive của GitHub Release, không phụ thuộc npm registry:
 
 ```bash
-npm install https://github.com/nguyenduytan/ndt-browser/releases/download/v0.2.0/nguyenduytan-ndt-browser-0.2.0.tgz
+npm install https://github.com/nguyenduytan/ndt-browser/releases/download/v0.3.0/nguyenduytan-ndt-browser-0.3.0.tgz
 ```
 
 Tạo `scrape.mjs`:
@@ -152,7 +152,9 @@ console.log(await session.extract({ title: 'h1' }, page));
 
 `session.newPage()` áp dụng cấu hình NDT trước khi trả page. Nếu dùng trực tiếp
 `session.context.newPage()`, gọi `await session.configurePage(page)` trước navigation.
-Popup, worker và page tạo bằng native API không tự được patch. Không kết hợp native
+Popup và page native trong context tự được cấu hình khi được phát hiện; dùng
+`await session.configurePage(page)` để chờ cấu hình hoàn tất. Request đầu tiên của
+popup có thể đi trước cấu hình. Worker chưa được cấu hình. Không kết hợp native
 interception với resource blocking/proxy auth của NDT nếu chưa test tương tác giữa chúng.
 
 ## Gọi API
@@ -269,8 +271,8 @@ NDT không dùng toàn bộ launch flags mặc định của driver. Mặc đị
 Không tắt Chromium sandbox mặc định. Locale/timezone/viewport và UA metadata tùy chọn
 được đặt bằng CDP native.
 
-Không có patch canvas, WebGL, audio, fonts, TLS hoặc Chromium internals. Worker/popup
-có thể mang cấu hình khác. UA tự đặt có thể mâu thuẫn với phần cứng/client hints;
+Không có patch canvas, WebGL, audio, fonts, TLS hoặc Chromium internals. Worker và
+request đầu của popup có thể mang cấu hình khác. UA tự đặt có thể mâu thuẫn với phần cứng/client hints;
 không nên tạo fingerprint ngẫu nhiên không nhất quán.
 
 Dùng `executablePath`/`args` cho Chromium tùy biến tương thích hoặc kết nối runtime
@@ -410,3 +412,64 @@ Use `session.goto(url, { readySelector, timeout, signal, onState })` for navigat
 Proxy accepts `http://user:pass@host:port`. Credentials are decoded and removed from launch arguments. Cancellation bounds waiting but cannot undo an already dispatched browser action; close the owned page to stop remaining work.
 
 Tiếng Việt: goto dùng chung deadline và chờ selector hiển thị; humanize chỉ điều chỉnh nhịp click/gõ/cuộn. Proxy nhận URL chứa credentials. Hủy chờ không hoàn tác lệnh browser đã gửi.
+
+## 🛠️ Phục hồi và chẩn đoán (v0.3)
+
+```js
+import { connect, ChallengeTimeoutError } from '@nguyenduytan/ndt-browser';
+
+const session = await connect({ headless: true });
+try {
+  await session.goto('https://example.com/', {
+    readyUrl: 'https://example.com/', // URL cuối phải khớp chính xác, kể cả dấu /
+    readySelector: 'h1',
+    timeout: 30_000,
+    screenshotOnTimeout: './challenge-timeout.png',
+  });
+} catch (error) {
+  if (error instanceof ChallengeTimeoutError) {
+    console.error(error.diagnostics);
+    await session.recoverPage(); // Bỏ page hiện tại, tạo page trắng; không gửi lại request.
+  } else throw error;
+} finally {
+  await session.close();
+}
+```
+
+Nếu truyền cả `readyUrl` và `readySelector`, cả hai phải khớp cùng với điều kiện
+challenge đã hết. Có token không đồng nghĩa tác vụ trên website thành công.
+`ChallengeTimeoutError.diagnostics` gồm `url`, `elapsedMs`, `detected`, `clicks`
+và `reason`: `challenge` (còn dấu hiệu challenge), `readiness` (chưa đạt điều kiện),
+`page-unresponsive` (page không phản hồi trong thời gian còn lại). Đây là thông tin
+quan sát, không phải cam kết giải CAPTCHA. Chụp PNG chỉ bật khi yêu cầu, chờ thêm tối đa
+hai giây và ghi `screenshotPath` hoặc `screenshotError`. Tab nền/page treo có thể không
+chụp được. Giữ riêng ảnh nếu trang có dữ liệu tài khoản. Lỗi navigation vẫn là lỗi
+native, không bị đổi thành lỗi challenge.
+
+`recoverPage(page = session.page)` đóng page được chọn và tạo page trắng đã cấu hình.
+Nếu đó là page mặc định, `session.page` được cập nhật. Cookie và các page khác vẫn ở
+cùng context; dữ liệu chưa lưu trong page bị bỏ. Nếu đóng page hết thời gian, recovery
+báo lỗi và không tạo page mới: hãy `session.close()` rồi kết nối lại. Mỗi bước shutdown
+có giới hạn theo timeout của session. Browser NDT tự mở còn có phương án dừng process;
+browser remote không bị kill. Nếu remote mất kết nối, context trên server có thể vẫn tồn tại.
+Request có deadline phía Node kể cả khi renderer treo, nhưng không hoàn tác được POST
+server đã nhận. Recovery không tự gửi lại POST.
+
+### Remote CDP có xác thực
+
+```js
+const session = await connect({
+  driver: 'playwright', // cũng dùng được 'puppeteer'
+  endpoint: process.env.NDT_CDP_ENDPOINT,
+  connectHeaders: { Authorization: `Bearer ${process.env.NDT_CDP_TOKEN}` },
+});
+try {
+  // Dùng session.page và các helper bình thường.
+} finally {
+  await session.close();
+}
+```
+
+`connectHeaders` bắt buộc đi cùng `endpoint`, chỉ dùng cho discovery/handshake CDP.
+Header gửi website vẫn dùng `headers`. Với token remote, dùng endpoint HTTPS/WSS tin cậy.
+NDT tạo context riêng và giữ nguyên các tab của chủ browser remote.

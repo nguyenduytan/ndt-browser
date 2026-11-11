@@ -6,7 +6,7 @@ import type { Browser as PPBrowser } from 'puppeteer-core';
 import type { BrowserOptions, Driver, DriverTypes, ExtractionSchema, NetworkStats, RequestOptions } from './types.js';
 import type { LaunchedBrowser } from './launcher.js';
 import { extract, request, type EvaluationPage } from './page-tools.js';
-import { waitForChallenge, type ChallengeOptions } from './challenge.js';
+import { waitForChallenge, ChallengeTimeoutError, type ChallengeOptions } from './challenge.js';
 
 export class BrowserSession<D extends Driver> {
   readonly stats: NetworkStats = { requests: 0, blocked: 0, transferredBytes: 0 };
@@ -14,6 +14,7 @@ export class BrowserSession<D extends Driver> {
   private closing?: Promise<void>;
   private configured = new WeakMap<object, Promise<void>>();
   private challenged = new WeakMap<object, boolean>();
+  private stopWatching: () => void;
   readonly profilePath?: string;
 
   constructor(
@@ -23,7 +24,29 @@ export class BrowserSession<D extends Driver> {
     readonly endpoint: string,
     private readonly options: BrowserOptions,
     private readonly launched?: LaunchedBrowser,
-  ) { this.profilePath = launched?.profilePath; }
+  ) {
+    this.profilePath = launched?.profilePath;
+    const configure = (page: DriverTypes[D]['page']) => {
+      if (!this.closing) void this.configurePage(page).catch(() => {
+        void bounded(page.close(), 2000).catch(() => {});
+      });
+    };
+    if (driver === 'playwright') {
+      const context = this.context as PWContext;
+      const onPage = (page: DriverTypes['playwright']['page']) => configure(page as DriverTypes[D]['page']);
+      context.on('page', onPage);
+      this.stopWatching = () => { context.off('page', onPage); };
+    } else {
+      const context = this.context as DriverTypes['puppeteer']['context'];
+      const onTarget = (target: import('puppeteer-core').Target) => {
+        if (target.type() === 'page') void target.page().then(page => {
+          if (page) configure(page as DriverTypes[D]['page']);
+        }).catch(() => {});
+      };
+      context.on('targetcreated', onTarget);
+      this.stopWatching = () => { context.off('targetcreated', onTarget); };
+    }
+  }
 
   private ensureOpen(): void { if (this.closing) throw new Error('Browser session is closed'); }
 
@@ -60,7 +83,7 @@ export class BrowserSession<D extends Driver> {
     });
     cdp.on('Network.requestWillBeSent', () => { this.stats.requests++; });
     cdp.on('Network.loadingFinished', event => { this.stats.transferredBytes += event.encodedDataLength ?? 0; });
-    if (this.options.headers) await cdp.send('Network.setExtraHTTPHeaders', { headers: this.options.headers });
+    if (this.options.headers) await page.setExtraHTTPHeaders(this.options.headers);
     const fp = this.options.fingerprint;
     if (fp?.viewport) await cdp.send('Emulation.setDeviceMetricsOverride', {
       width: fp.viewport.width, height: fp.viewport.height,
@@ -100,9 +123,12 @@ export class BrowserSession<D extends Driver> {
     }
   }
 
-  request(url: string, options: RequestOptions = {}, page: DriverTypes[D]['page'] = this.page) {
+  async request(url: string, options: RequestOptions = {}, page: DriverTypes[D]['page'] = this.page) {
     this.ensureOpen();
-    return request(page as EvaluationPage, url, { timeout: this.options.timeout, ...options });
+    await this.configurePage(page);
+    const timeout = options.timeout ?? this.options.timeout ?? 30_000;
+    positive(timeout, 'timeout');
+    return bounded(request(page as EvaluationPage, url, { ...options, timeout }), timeout);
   }
 
   extract(schema: ExtractionSchema, page: DriverTypes[D]['page'] = this.page) {
@@ -110,9 +136,31 @@ export class BrowserSession<D extends Driver> {
     return extract(page as EvaluationPage, schema);
   }
 
-  waitForChallenge(options: ChallengeOptions = {}, page: DriverTypes[D]['page'] = this.page) {
+  async waitForChallenge(options: ChallengeOptions = {}, page: DriverTypes[D]['page'] = this.page) {
     this.ensureOpen();
-    return waitForChallenge(page as DriverTypes['playwright']['page'], options, () => this.challenged.get(page) ?? false);
+    try {
+      return await waitForChallenge(page as DriverTypes['playwright']['page'], options, () => this.challenged.get(page) ?? false);
+    } catch (error) {
+      if (error instanceof ChallengeTimeoutError && error.diagnostics && options.screenshotOnTimeout) {
+        try {
+          await bounded(page.screenshot({ path: options.screenshotOnTimeout as `${string}.png`, type: 'png' }), 2000);
+          error.diagnostics.screenshotPath = options.screenshotOnTimeout;
+        } catch { error.diagnostics.screenshotError = 'Screenshot unavailable or capture exceeded 2000ms'; }
+      }
+      throw error;
+    }
+  }
+
+  /** Explicit recovery: closes only the affected page; no request is replayed. */
+  async recoverPage(page: DriverTypes[D]['page'] = this.page): Promise<DriverTypes[D]['page']> {
+    this.ensureOpen();
+    const context = this.driver === 'puppeteer' ? (page as DriverTypes['puppeteer']['page']).browserContext() :
+      (page as DriverTypes['playwright']['page']).context();
+    if (context !== this.context) throw new Error('Page must belong to this session context');
+    await bounded(page.close(), this.options.timeout ?? 30_000);
+    const replacement = await this.newPage();
+    if (page === this.page) this.page = replacement;
+    return replacement;
   }
 
   /** Navigation and readiness share one deadline. No automatic navigation retry. */
@@ -121,7 +169,10 @@ export class BrowserSession<D extends Driver> {
     const timeout = options.timeout ?? this.options.timeout ?? 30_000;
     positive(timeout, 'timeout');
     const start = Date.now();
-    const response = await bounded<import('puppeteer-core').HTTPResponse | import('playwright-core').Response | null>(page.goto(url, { waitUntil: 'domcontentloaded', timeout }), timeout, options.signal);
+    await bounded(this.configurePage(page), timeout, options.signal);
+    const navigationTimeout = timeout - (Date.now() - start);
+    if (navigationTimeout <= 0) throw new Error('Navigation deadline exceeded');
+    const response = await bounded<import('puppeteer-core').HTTPResponse | import('playwright-core').Response | null>(page.goto(url, { waitUntil: 'domcontentloaded', timeout: navigationTimeout }), navigationTimeout, options.signal);
     const remaining = timeout - (Date.now() - start);
     if (remaining <= 0) throw new Error('Navigation deadline exceeded');
     const challenge = await this.waitForChallenge({ ...options, timeout: remaining }, page);
@@ -166,19 +217,21 @@ export class BrowserSession<D extends Driver> {
 
   close(): Promise<void> {
     return this.closing ??= (async () => {
+      this.stopWatching();
+      const timeout = this.options.timeout ?? 30_000;
       try {
         if (!this.launched) {
-          try { await this.context.close(); }
+          try { await bounded(this.context.close(), timeout); }
           finally {
             if (this.driver === 'puppeteer') await (this.browser as PPBrowser).disconnect();
-            else await this.browser.close(); // Playwright CDP close disconnects the borrowed browser.
+            else await bounded(this.browser.close(), timeout); // Playwright CDP close disconnects the borrowed browser.
           }
         } else {
           if (this.driver === 'playwright' && (this.browser as PWBrowser).isConnected()) {
-            const cdp = await (this.browser as PWBrowser).newBrowserCDPSession();
-            await cdp.send('Browser.close').catch(() => {});
+            const cdp = await bounded((this.browser as PWBrowser).newBrowserCDPSession(), timeout);
+            await bounded(cdp.send('Browser.close'), timeout).catch(() => {});
           }
-          await this.browser.close();
+          await bounded(this.browser.close(), timeout);
         }
       } finally { await this.launched?.stop(); }
     })();

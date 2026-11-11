@@ -9,19 +9,33 @@ export interface ChallengeOptions {
   pollInterval?: number;
   settleTime?: number;
   readySelector?: string;
+  /** Exact final URL required in addition to challenge clearance. */
+  readyUrl?: string;
+  /** Session helper only: optional PNG captured on challenge timeout. */
+  screenshotOnTimeout?: string;
   /** Best-effort native click on a recognized widget only. Disabled by default. */
   clickTurnstile?: boolean;
   maxClicks?: number;
   signal?: AbortSignal;
 }
 export interface ChallengeResult { status: 'ready'; detected: boolean; clicks: number; elapsedMs: number }
+export interface ChallengeDiagnostics {
+  url?: string;
+  elapsedMs: number;
+  detected: boolean;
+  clicks: number;
+  reason: 'challenge' | 'readiness' | 'page-unresponsive';
+  screenshotPath?: string;
+  screenshotError?: string;
+}
 export class ChallengeTimeoutError extends Error {
   readonly code = 'CHALLENGE_TIMEOUT';
+  diagnostics?: ChallengeDiagnostics;
   constructor() { super('Challenge did not clear or the ready selector did not appear before timeout'); this.name = 'ChallengeTimeoutError'; }
 }
 
 export async function waitForChallenge(
-  page: Pick<Page, 'evaluate' | 'mouse' | 'isClosed'>,
+  page: Pick<Page, 'evaluate' | 'mouse' | 'isClosed'> & { url?: () => string },
   options: ChallengeOptions = {},
   responseChallenged: () => boolean = () => false,
 ): Promise<ChallengeResult> {
@@ -39,10 +53,17 @@ export async function waitForChallenge(
   };
   notify('checking');
   let readySince = 0, clicks = 0, lastClick = 0, detected = false;
+  let reason: ChallengeDiagnostics['reason'] = 'readiness';
+  const timedOut = (error = new ChallengeTimeoutError()) => {
+    error.diagnostics = { url: page.url?.(), elapsedMs: Date.now() - start, detected, clicks, reason };
+    notify('timeout');
+    return error;
+  };
   while (Date.now() - start < timeout) {
     options.signal?.throwIfAborted();
     if (page.isClosed()) throw new Error('Page closed while waiting for challenge');
     try {
+      reason = 'page-unresponsive';
       const state = await bounded(page.evaluate(selector => {
         const fields = [...document.querySelectorAll<HTMLInputElement>('input[name="cf-turnstile-response"]')];
         const token = fields.length > 0 && fields.every(field => !!field.value);
@@ -72,9 +93,10 @@ export async function waitForChallenge(
           ready: document.readyState !== 'loading' && visible };
       }, options.readySelector), timeout - (Date.now() - start), options.signal, new ChallengeTimeoutError());
       const challenged = state.challenged || responseChallenged();
+      reason = challenged ? 'challenge' : 'readiness';
       detected ||= challenged;
       notify(challenged ? 'challenge' : 'checking');
-      if (!challenged && state.ready) {
+      if (!challenged && state.ready && (!options.readyUrl || page.url?.() === options.readyUrl)) {
         readySince ||= Date.now();
         if (Date.now() - readySince >= settle) { notify('ready'); return { status: 'ready', detected, clicks, elapsedMs: Date.now() - start }; }
       } else readySince = 0;
@@ -84,13 +106,12 @@ export async function waitForChallenge(
         clicks++; lastClick = Date.now();
       }
     } catch (error) {
-      if (error instanceof ChallengeTimeoutError) notify('timeout');
+      if (error instanceof ChallengeTimeoutError) throw timedOut(error);
       // Navigation replaces the execution context while an interstitial redirects.
       if (!(error instanceof Error) || !/execution context.*destroyed|cannot find context/i.test(error.message)) throw error;
       readySince = 0;
     }
     await delay(Math.min(poll, Math.max(1, timeout - (Date.now() - start))), undefined, { signal: options.signal });
   }
-  notify('timeout');
-  throw new ChallengeTimeoutError();
+  throw timedOut();
 }

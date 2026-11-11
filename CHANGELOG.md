@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0 — 2026-11-11
+
+- Automatic setup for popups/native pages within the owned session context.
+- CDP connection headers for authenticated HTTP discovery and WebSocket transport.
+- Exact final-URL readiness, structured challenge timeout diagnostics and optional PNG capture.
+- Explicit `recoverPage()` closes a stuck page and replaces the default page when applicable.
+- Bounded browser/context shutdown and host-side API request deadlines.
+- Both-driver regression coverage for popup setup, iframe actions, hung renderers and authenticated CDP isolation.
+
+Popup discovery cannot configure the first request retroactively. Recovery discards the affected page's unsaved state and never retries a request. Screenshots are best effort with a two-second capture limit.
+
+## 0.2.0 — 2026-11-11
+
+- Proxy URL credentials, shared navigation/readiness deadline and visible ready selectors.
+- Challenge state callbacks and explicit click/type/scroll pacing helpers.
+- Cancellation and bounded waiting for challenge operations.
+
 ## 0.1.0 — 2026-11-11
 
 - Direct Chrome/Chromium launch with Puppeteer or Playwright over CDP.

@@ -75,7 +75,7 @@ also needs a display; use `headless: true` for a server without one.
 Install the GitHub release archive (npm registry publication is not required):
 
 ```bash
-npm install https://github.com/nguyenduytan/ndt-browser/releases/download/v0.2.0/nguyenduytan-ndt-browser-0.2.0.tgz
+npm install https://github.com/nguyenduytan/ndt-browser/releases/download/v0.3.0/nguyenduytan-ndt-browser-0.3.0.tgz
 ```
 
 Create `scrape.mjs`:
@@ -154,7 +154,9 @@ console.log(await session.extract({ title: 'h1' }, page));
 
 If you create a page directly with `session.context.newPage()`, call
 `await session.configurePage(page)` **before navigation**. Settings are per page;
-popups, workers and pages created through native APIs are not automatically patched.
+popups and native pages in the session context are configured automatically after discovery.
+Await `configurePage(page)` before actions that require completed setup. The first popup
+request can precede configuration. Workers are not configured.
 Do not combine native interception with NDT resource blocking/proxy authentication
 without testing their interaction: both may use CDP Fetch interception.
 
@@ -280,7 +282,7 @@ NDT starts Chromium without a driver's launch-flag bundle. By default it sets
 Locale/timezone/viewport and optional user agent metadata use native CDP settings.
 
 This does **not** patch canvas, WebGL, audio, fonts, TLS, browser internals or all
-automation signals. Workers/popups may expose different settings. UA overrides can
+automation signals. Workers and initial popup requests may expose different settings. UA overrides can
 be inconsistent with real hardware/client hints; avoid invented random fingerprints.
 
 Use `executablePath` and `args` for a compatible custom Chromium binary, or connect to
@@ -464,3 +466,65 @@ Use `session.goto(url, { readySelector, timeout, signal, onState })` for navigat
 Proxy accepts `http://user:pass@host:port`. Credentials are decoded and removed from launch arguments. Cancellation bounds waiting but cannot undo an already dispatched browser action; close the owned page to stop remaining work.
 
 Tiếng Việt: goto dùng chung deadline và chờ selector hiển thị; humanize chỉ điều chỉnh nhịp click/gõ/cuộn. Proxy nhận URL chứa credentials. Hủy chờ không hoàn tác lệnh browser đã gửi.
+
+## 🛠️ Recovery and diagnostics (v0.3)
+
+```js
+import { connect, ChallengeTimeoutError } from '@nguyenduytan/ndt-browser';
+
+const session = await connect({ headless: true });
+try {
+  await session.goto('https://example.com/', {
+    readyUrl: 'https://example.com/', // exact final URL, including trailing slash
+    readySelector: 'h1',
+    timeout: 30_000,
+    screenshotOnTimeout: './challenge-timeout.png',
+  });
+} catch (error) {
+  if (error instanceof ChallengeTimeoutError) {
+    console.error(error.diagnostics);
+    // Explicitly discard this page and replace session.page. No request replay.
+    await session.recoverPage();
+  } else throw error;
+} finally {
+  await session.close();
+}
+```
+
+`readyUrl` and `readySelector` must both match when supplied. They check application
+readiness in addition to challenge clearance; a token alone does not establish success.
+`ChallengeTimeoutError.diagnostics` contains `url`, `elapsedMs`, `detected`, `clicks`
+and `reason` (`challenge`, `readiness`, or `page-unresponsive`). These are observations,
+not a claim that a CAPTCHA can be solved. PNG capture is opt-in, adds at most two
+seconds of waiting, and records `screenshotPath` or `screenshotError`. A background
+or hung page may not produce a screenshot. Keep diagnostic files private if pages
+contain account data. Navigation failures remain native errors, not challenge errors.
+
+`recoverPage(page = session.page)` closes only that page, creates a configured blank
+replacement, and updates `session.page` if it replaced the default. Other pages and
+cookies remain in the same context. Unsaved page state is discarded. If closing the
+page times out, recovery rejects without opening another page: call `session.close()`
+and reconnect. Close operations are bounded by the session timeout per shutdown
+stage; a locally owned browser also has a process termination fallback. A borrowed
+browser is never killed. A disconnected remote server can still retain its context.
+Request deadlines bound the caller even if the renderer hangs; they cannot undo a
+POST already accepted by the server. Recovery never retries that POST.
+
+### Authenticated remote CDP
+
+```js
+const session = await connect({
+  driver: 'playwright', // also supports 'puppeteer'
+  endpoint: process.env.NDT_CDP_ENDPOINT,
+  connectHeaders: { Authorization: `Bearer ${process.env.NDT_CDP_TOKEN}` },
+});
+try {
+  // Use session.page and the normal helpers.
+} finally {
+  await session.close();
+}
+```
+
+`connectHeaders` requires `endpoint` and applies to CDP discovery/handshake only.
+Website headers still use `headers`. Use a trusted HTTPS/WSS endpoint for remote
+credentials. NDT creates its own context and preserves the remote owner's tabs.

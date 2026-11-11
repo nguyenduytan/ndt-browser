@@ -28,6 +28,15 @@ export function validateOptions(options: BrowserOptions): void {
   if (options.driver !== undefined && !['playwright', 'puppeteer'].includes(options.driver))
     throw new TypeError('driver must be puppeteer or playwright');
   positive(options.timeout ?? 30_000, 'timeout');
+  if (options.connectHeaders !== undefined) {
+    if (!options.endpoint) throw new TypeError('connectHeaders requires endpoint');
+    if (!options.connectHeaders || typeof options.connectHeaders !== 'object' || Array.isArray(options.connectHeaders))
+      throw new TypeError('connectHeaders must be a header map');
+    for (const [name, value] of Object.entries(options.connectHeaders)) {
+      if (typeof value !== 'string') throw new TypeError('connectHeaders values must be strings');
+      new Headers({ [name]: value });
+    }
+  }
   for (const key of ['headless', 'reduceAutomationSignals', 'humanize'] as const)
     if (options[key] !== undefined && typeof options[key] !== 'boolean') throw new TypeError(`${key} must be boolean`);
   for (const key of ['userDataDir', 'executablePath'] as const)

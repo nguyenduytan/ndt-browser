@@ -5,7 +5,7 @@ import type { BrowserOptions, Driver } from './types.js';
 export { BrowserSession } from './session.js';
 export type * from './types.js';
 export { ChallengeTimeoutError } from './challenge.js';
-export type { ChallengeOptions, ChallengeResult } from './challenge.js';
+export type { ChallengeOptions, ChallengeResult, ChallengeDiagnostics } from './challenge.js';
 
 export function connect(options?: BrowserOptions<'puppeteer'>): Promise<BrowserSession<'puppeteer'>>;
 export function connect(options: BrowserOptions<'playwright'> & { driver: 'playwright' }): Promise<BrowserSession<'playwright'>>;
@@ -21,7 +21,7 @@ export async function connect(options: BrowserOptions = {}): Promise<BrowserSess
   try {
     if (options.driver === 'playwright') {
       const { chromium } = await import('playwright-core');
-      const browser = await chromium.connectOverCDP(endpoint, { timeout });
+      const browser = await chromium.connectOverCDP(endpoint, { timeout, headers: options.connectHeaders });
       disconnect = () => browser.close();
       const context = launched ? browser.contexts()[0]! : await browser.newContext({ viewport: null });
       session = new BrowserSession('playwright', browser, context, endpoint, options, launched);
@@ -30,6 +30,7 @@ export async function connect(options: BrowserOptions = {}): Promise<BrowserSess
       const browser = await puppeteer.connect({
         ...(/^https?:/.test(endpoint) ? { browserURL: endpoint } : { browserWSEndpoint: endpoint }),
         defaultViewport: null, protocolTimeout: timeout,
+        headers: options.connectHeaders,
       });
       disconnect = async () => { await browser.disconnect(); };
       const context = launched ? browser.defaultBrowserContext() : await browser.createBrowserContext();

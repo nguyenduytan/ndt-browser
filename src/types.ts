@@ -20,6 +20,8 @@ export interface BrowserOptions<D extends Driver = Driver> {
   executablePath?: string;
   /** Borrow a Chromium browser over CDP; close() only disposes our context. */
   endpoint?: string;
+  /** CDP handshake headers, never applied to website requests. */
+  connectHeaders?: Record<string, string>;
   userDataDir?: string;
   headless?: boolean;
   args?: string[];

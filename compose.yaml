@@ -1,0 +1,19 @@
+services:
+  ndt:
+    build:
+      context: .
+      target: runtime
+    image: ndt-browser:0.1.0
+    init: true
+    shm_size: 1gb
+    mem_limit: 2g
+    pids_limit: 256
+    security_opt:
+      - seccomp=./docker/seccomp_profile.json
+    volumes:
+      - ndt-profiles:/data/profiles
+      - ndt-output:/data/output
+    command: ["node", "dist/cli.js", "--help"]
+volumes:
+  ndt-profiles:
+  ndt-output:

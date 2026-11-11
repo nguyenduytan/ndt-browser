@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.cache/
+artifacts/
+profiles/
+.env
+.env.*
+*.tgz
+*.log
+test-results/

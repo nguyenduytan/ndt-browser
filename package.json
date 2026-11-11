@@ -1,0 +1,62 @@
+{
+  "name": "@nguyenduytan/ndt-browser",
+  "version": "0.1.0",
+  "description": "A small real-browser automation and scraping toolkit for Puppeteer and Playwright.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "ndt-browser": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "README.vi.md",
+    "SECURITY.md",
+    "docs/docker.md"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs",
+    "test:unit": "npm run build && node --test test/config.test.mjs",
+    "prepack": "npm run build",
+    "test:types": "tsc --ignoreConfig --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck test/types.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nguyenduytan/ndt-browser.git"
+  },
+  "homepage": "https://github.com/nguyenduytan/ndt-browser#readme",
+  "bugs": "https://github.com/nguyenduytan/ndt-browser/issues",
+  "license": "MIT",
+  "author": "Tony Nguyen",
+  "keywords": [
+    "browser",
+    "automation",
+    "scraping",
+    "puppeteer",
+    "playwright",
+    "cdp"
+  ],
+  "dependencies": {
+    "playwright-core": "1.65.0",
+    "puppeteer-core": "25.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}

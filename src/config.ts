@@ -22,7 +22,8 @@ export function validateOptions(options: BrowserOptions): void {
   for (const key of ['userDataDir', 'executablePath'] as const)
     if (options[key] !== undefined && (typeof options[key] !== 'string' || !options[key]!.trim()))
       throw new TypeError(`${key} must be a non-empty path`);
-  if (options.endpoint) {
+  if (options.endpoint !== undefined) {
+    if (typeof options.endpoint !== 'string' || !options.endpoint.trim()) throw new TypeError('endpoint must be a non-empty CDP URL');
     const url = new URL(options.endpoint);
     if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) throw new TypeError('Invalid CDP endpoint');
     if (options.userDataDir || options.executablePath || options.args?.length || options.proxy || options.headless !== undefined)
@@ -52,6 +53,8 @@ export function validateOptions(options: BrowserOptions): void {
       if (!Number.isInteger(fp.viewport[name])) throw new TypeError('Viewport dimensions must be integers');
     }
     positive(fp.viewport.deviceScaleFactor ?? 1, 'deviceScaleFactor');
+    if (fp.viewport.isMobile !== undefined && typeof fp.viewport.isMobile !== 'boolean')
+      throw new TypeError('viewport.isMobile must be boolean');
   }
   if (fp?.locale) new Intl.Locale(fp.locale);
   if (fp?.timezone) new Intl.DateTimeFormat('en', { timeZone: fp.timezone });

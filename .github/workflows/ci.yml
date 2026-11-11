@@ -14,17 +14,22 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Install CI browser
-        run: npx playwright-core install --with-deps chromium
-      - name: Select CI browser
+      - run: npm run build
+      - name: Inspect installed browser
+        run: node --input-type=module -e "import { browserPath } from './dist/config.js'; console.log(browserPath());"
+      - name: Verify Linux browser sandbox
+        if: runner.os == 'Linux'
         shell: bash
-        run: node --input-type=module -e "import { chromium } from 'playwright-core'; import { appendFileSync } from 'node:fs'; appendFileSync(process.env.GITHUB_ENV, 'NDT_BROWSER_PATH=' + chromium.executablePath() + '\n');"
+        run: |
+          browser=$(node --input-type=module -e "import { browserPath } from './dist/config.js'; console.log(browserPath());")
+          "$browser" --version
+          timeout 20 "$browser" --headless=new --dump-dom about:blank
       - run: npm test
       - run: npm run test:types
       - run: npm audit --omit=dev --audit-level=high
@@ -33,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - run: docker build --target test -t ndt-browser:test .
       - run: docker run --rm --init --shm-size=1g --security-opt seccomp=./docker/seccomp_profile.json ndt-browser:test
       - run: docker run --rm --init --shm-size=1g --security-opt seccomp=./docker/seccomp_profile.json ndt-browser:test xvfb-run -a node test/docker-smoke.mjs

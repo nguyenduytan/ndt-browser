@@ -17,6 +17,13 @@ Popup discovery cannot configure the first request retroactively. Recovery disca
 - Challenge state callbacks and explicit click/type/scroll pacing helpers.
 - Cancellation and bounded waiting for challenge operations.
 
+`session.goto()` combines navigation and visible readiness under one deadline.
+`onState` reports `checking`, `challenge`, `ready`, and `timeout`.
+With `humanize: true`, session helpers use a 70 ms click hold, a 60 ms typing
+interval, and up to 20 scroll steps. Native driver methods remain unchanged;
+these helpers do not simulate randomized mouse paths. Proxy URL credentials
+are percent-decoded and removed from the browser launch endpoint.
+
 ## 0.1.0 — 2026-11-11
 
 - Direct Chrome/Chromium launch with Puppeteer or Playwright over CDP.

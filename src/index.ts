@@ -1,4 +1,4 @@
-import { validateOptions } from './config.js';
+import { validateOptions, normalizeProxy } from './config.js';
 import { launch } from './launcher.js';
 import { BrowserSession } from './session.js';
 import type { BrowserOptions, Driver } from './types.js';
@@ -12,6 +12,7 @@ export function connect(options: BrowserOptions<'playwright'> & { driver: 'playw
 export function connect(options: BrowserOptions): Promise<BrowserSession<Driver>>;
 export async function connect(options: BrowserOptions = {}): Promise<BrowserSession<Driver>> {
   validateOptions(options);
+  options = { ...options, proxy: normalizeProxy(options.proxy) };
   const launched = options.endpoint ? undefined : await launch(options);
   const endpoint = options.endpoint ?? launched!.endpoint;
   const timeout = options.timeout ?? 30_000;

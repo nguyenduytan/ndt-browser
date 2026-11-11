@@ -14,6 +14,7 @@ export interface Fingerprint {
   userAgent?: string;
   userAgentMetadata?: PP.Protocol.Emulation.UserAgentMetadata;
 }
+export interface ProxyOptions { server: string; username?: string; password?: string }
 export interface BrowserOptions<D extends Driver = Driver> {
   driver?: D;
   executablePath?: string;
@@ -26,7 +27,8 @@ export interface BrowserOptions<D extends Driver = Driver> {
   /** Suppress Chromium's AutomationControlled flag. Not a fingerprint patch suite. */
   reduceAutomationSignals?: boolean;
   fingerprint?: Fingerprint;
-  proxy?: { server: string; username?: string; password?: string };
+  proxy?: ProxyOptions | string;
+  humanize?: boolean;
   blockResources?: ResourceType[];
   headers?: Record<string, string>;
 }

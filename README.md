@@ -75,7 +75,7 @@ also needs a display; use `headless: true` for a server without one.
 Install the GitHub release archive (npm registry publication is not required):
 
 ```bash
-npm install https://github.com/nguyenduytan/ndt-browser/releases/download/v0.1.0/nguyenduytan-ndt-browser-0.1.0.tgz
+npm install https://github.com/nguyenduytan/ndt-browser/releases/download/v0.2.0/nguyenduytan-ndt-browser-0.2.0.tgz
 ```
 
 Create `scrape.mjs`:
@@ -422,11 +422,35 @@ by the tests. A clean consumer install is checked before release.
 
 ## Credits and scope
 
-Architecture references: [Puppeteer Real Browser](https://github.com/ZFC-Digital/puppeteer-real-browser),
-[Scrapling](https://github.com/D4Vinci/Scrapling), and
-[CloakBrowser](https://github.com/CloakHQ/CloakBrowser). NDT's implementation is separate;
-it does not vendor their source or binaries. Dependencies are Playwright Core and
-Puppeteer Core. NDT code is MIT; browser binaries retain their own licenses.
-
 NDT is a local SDK for trusted callers, **not** a sandboxed public scraping endpoint.
 See [SECURITY.md](SECURITY.md) and [release notes](CHANGELOG.md).
+
+## v0.2 automation helpers
+
+```js
+const session = await connect({
+  driver: 'playwright', headless: false, humanize: true,
+  proxy: process.env.PROXY_URL, // http://user:pass@host:port
+});
+try {
+  await session.goto('https://your-app.example', {
+    readySelector: '#app', timeout: 60000,
+    onState: state => console.log(state),
+  });
+  await session.type('#name', 'NDT');
+  await session.click('#save');
+  await session.scroll(400);
+} finally { await session.close(); }
+```
+
+`goto` shares a deadline between navigation and challenge readiness. `readySelector`
+must be visible. `onState` reports checking/challenge/ready/timeout. AbortSignal bounds
+waiting even if evaluation stalls, but cannot undo an already dispatched native action;
+close the owned page if you need to stop remaining browser work. Native `page.goto`
+is unchanged. The returned response is the initial navigation response.
+
+`humanize` currently means explicit pacing: 70 ms click hold, 60 ms between typed
+characters and scroll increments up to 20 steps. It is not randomized mouse-path
+simulation or a detection guarantee. It affects session.click/type/scroll only;
+native page methods stay unchanged. type appends text. Proxy URL credentials are
+percent-decoded and removed from the browser launch endpoint.

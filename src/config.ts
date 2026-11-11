@@ -1,7 +1,18 @@
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { BrowserOptions } from './types.js';
+import type { BrowserOptions, ProxyOptions } from './types.js';
+
+export function normalizeProxy(value?: ProxyOptions | string): ProxyOptions | undefined {
+  if (typeof value !== 'string') return value;
+  try {
+    const url = new URL(value);
+    const username = url.username ? decodeURIComponent(url.username) : undefined;
+    const password = url.username ? decodeURIComponent(url.password) : undefined;
+    url.username = ''; url.password = '';
+    return { server: url.href, username, password };
+  } catch { throw new TypeError('Invalid proxy URL'); }
+}
 
 export function positive(value: number, name: string): void {
   if (!Number.isFinite(value) || value <= 0) throw new TypeError(`${name} must be positive and finite`);
@@ -17,7 +28,7 @@ export function validateOptions(options: BrowserOptions): void {
   if (options.driver !== undefined && !['playwright', 'puppeteer'].includes(options.driver))
     throw new TypeError('driver must be puppeteer or playwright');
   positive(options.timeout ?? 30_000, 'timeout');
-  for (const key of ['headless', 'reduceAutomationSignals'] as const)
+  for (const key of ['headless', 'reduceAutomationSignals', 'humanize'] as const)
     if (options[key] !== undefined && typeof options[key] !== 'boolean') throw new TypeError(`${key} must be boolean`);
   for (const key of ['userDataDir', 'executablePath'] as const)
     if (options[key] !== undefined && (typeof options[key] !== 'string' || !options[key]!.trim()))
@@ -35,7 +46,7 @@ export function validateOptions(options: BrowserOptions): void {
       /^--(user-data-dir|remote-debugging-[^=]+|proxy-[^=]+|headless)(=|$)/.test(arg))
       throw new TypeError('args must be browser flags; configure profile, CDP, headless and proxy through named options');
   }
-  const proxy = options.proxy;
+  const proxy = normalizeProxy(options.proxy);
   if (proxy) {
     const url = new URL(proxy.server);
     if (!['http:', 'https:', 'socks5:'].includes(url.protocol) || url.username || url.password ||

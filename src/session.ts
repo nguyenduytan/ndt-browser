@@ -1,3 +1,6 @@
+import { normalizeProxy } from './config.js';
+import { httpUrl, positive } from './config.js';
+import { bounded } from './deadline.js';
 import type { Browser as PWBrowser, BrowserContext as PWContext, CDPSession } from 'playwright-core';
 import type { Browser as PPBrowser } from 'puppeteer-core';
 import type { BrowserOptions, Driver, DriverTypes, ExtractionSchema, NetworkStats, RequestOptions } from './types.js';
@@ -73,7 +76,8 @@ export class BrowserSession<D extends Driver> {
       });
     }
     const blocked = new Set<string>(this.options.blockResources ?? []);
-    const auth = this.options.proxy?.username !== undefined ? this.options.proxy : undefined;
+    const proxy = normalizeProxy(this.options.proxy);
+    const auth = proxy?.username !== undefined ? proxy : undefined;
     if (blocked.size || auth) {
       const attemptedAuth = new Set<string>();
       cdp.on('Fetch.authRequired', event => {
@@ -109,6 +113,55 @@ export class BrowserSession<D extends Driver> {
   waitForChallenge(options: ChallengeOptions = {}, page: DriverTypes[D]['page'] = this.page) {
     this.ensureOpen();
     return waitForChallenge(page as DriverTypes['playwright']['page'], options, () => this.challenged.get(page) ?? false);
+  }
+
+  /** Navigation and readiness share one deadline. No automatic navigation retry. */
+  async goto(url: string, options: ChallengeOptions = {}, page: DriverTypes[D]['page'] = this.page) {
+    this.ensureOpen(); httpUrl(url); options.signal?.throwIfAborted();
+    const timeout = options.timeout ?? this.options.timeout ?? 30_000;
+    positive(timeout, 'timeout');
+    const start = Date.now();
+    const response = await bounded<import('puppeteer-core').HTTPResponse | import('playwright-core').Response | null>(page.goto(url, { waitUntil: 'domcontentloaded', timeout }), timeout, options.signal);
+    const remaining = timeout - (Date.now() - start);
+    if (remaining <= 0) throw new Error('Navigation deadline exceeded');
+    const challenge = await this.waitForChallenge({ ...options, timeout: remaining }, page);
+    return { response, challenge };
+  }
+
+  /** Explicit pacing helpers; native page methods remain unchanged. */
+  async click(selector: string, page: DriverTypes[D]['page'] = this.page): Promise<void> {
+    this.ensureOpen();
+    if (this.driver === 'playwright') {
+      await (page as DriverTypes['playwright']['page']).locator(selector).click({ delay: this.options.humanize ? 70 : 0 });
+    } else {
+      const element = await (page as DriverTypes['puppeteer']['page']).waitForSelector(selector, { visible: true });
+      if (!element) throw new Error('Click target not found');
+      try { await element.click({ delay: this.options.humanize ? 70 : 0 }); }
+      finally { await element.dispose(); }
+    }
+  }
+
+  async type(selector: string, text: string, page: DriverTypes[D]['page'] = this.page): Promise<void> {
+    this.ensureOpen();
+    if (this.driver === 'playwright') {
+      await (page as DriverTypes['playwright']['page']).locator(selector).pressSequentially(text, { delay: this.options.humanize ? 60 : 0 });
+    } else {
+      const element = await (page as DriverTypes['puppeteer']['page']).waitForSelector(selector, { visible: true });
+      if (!element) throw new Error('Type target not found');
+      try { await element.type(text, { delay: this.options.humanize ? 60 : 0 }); }
+      finally { await element.dispose(); }
+    }
+  }
+
+  async scroll(deltaY: number, page: DriverTypes[D]['page'] = this.page): Promise<void> {
+    this.ensureOpen();
+    if (!Number.isFinite(deltaY)) throw new TypeError('deltaY must be finite');
+    const steps = this.options.humanize ? Math.min(20, Math.max(1, Math.ceil(Math.abs(deltaY) / 100))) : 1;
+    for (let i = 0; i < steps; i++) {
+      if (this.driver === 'playwright') await (page as DriverTypes['playwright']['page']).mouse.wheel(0, deltaY / steps);
+      else await (page as DriverTypes['puppeteer']['page']).mouse.wheel({ deltaY: deltaY / steps });
+      if (this.options.humanize && i + 1 < steps) await new Promise(resolve => setTimeout(resolve, 40));
+    }
   }
 
   close(): Promise<void> {

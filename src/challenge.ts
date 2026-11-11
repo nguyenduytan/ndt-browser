@@ -1,8 +1,10 @@
+import { bounded } from './deadline.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Page } from 'playwright-core';
 import { positive } from './config.js';
 
 export interface ChallengeOptions {
+  onState?: (state: 'checking' | 'challenge' | 'ready' | 'timeout') => void;
   timeout?: number;
   pollInterval?: number;
   settleTime?: number;
@@ -29,13 +31,19 @@ export async function waitForChallenge(
   const maxClicks = options.maxClicks ?? 3;
   positive(timeout, 'timeout'); positive(poll, 'pollInterval'); positive(settle, 'settleTime');
   if (!Number.isInteger(maxClicks) || maxClicks < 0) throw new TypeError('maxClicks must be a nonnegative integer');
+  options.signal?.throwIfAborted();
   const start = Date.now();
+  let lastState = '';
+  const notify = (state: 'checking' | 'challenge' | 'ready' | 'timeout') => {
+    if (state !== lastState) { lastState = state; options.onState?.(state); }
+  };
+  notify('checking');
   let readySince = 0, clicks = 0, lastClick = 0, detected = false;
   while (Date.now() - start < timeout) {
     options.signal?.throwIfAborted();
     if (page.isClosed()) throw new Error('Page closed while waiting for challenge');
     try {
-      const state = await page.evaluate(selector => {
+      const state = await bounded(page.evaluate(selector => {
         const fields = [...document.querySelectorAll<HTMLInputElement>('input[name="cf-turnstile-response"]')];
         const token = fields.length > 0 && fields.every(field => !!field.value);
         const frames = [...document.querySelectorAll<HTMLIFrameElement>('iframe')].filter(frame => {
@@ -57,26 +65,32 @@ export async function waitForChallenge(
             }
           }
         }
+        const readyElement = selector ? document.querySelector(selector) : null;
+        const visible = !selector || !!readyElement && readyElement.getClientRects().length > 0 &&
+          getComputedStyle(readyElement).visibility !== 'hidden' && getComputedStyle(readyElement).opacity !== '0';
         return { challenged: interstitial || widget && !token, target,
-          ready: document.readyState !== 'loading' && (!selector || !!document.querySelector(selector)) };
-      }, options.readySelector);
+          ready: document.readyState !== 'loading' && visible };
+      }, options.readySelector), timeout - (Date.now() - start), options.signal, new ChallengeTimeoutError());
       const challenged = state.challenged || responseChallenged();
       detected ||= challenged;
+      notify(challenged ? 'challenge' : 'checking');
       if (!challenged && state.ready) {
         readySince ||= Date.now();
-        if (Date.now() - readySince >= settle) return { status: 'ready', detected, clicks, elapsedMs: Date.now() - start };
+        if (Date.now() - readySince >= settle) { notify('ready'); return { status: 'ready', detected, clicks, elapsedMs: Date.now() - start }; }
       } else readySince = 0;
       if (challenged && options.clickTurnstile && state.target && clicks < maxClicks && Date.now() - lastClick >= 1500) {
         options.signal?.throwIfAborted();
-        await page.mouse.click(state.target.x, state.target.y);
+        await bounded(page.mouse.click(state.target.x, state.target.y), timeout - (Date.now() - start), options.signal, new ChallengeTimeoutError());
         clicks++; lastClick = Date.now();
       }
     } catch (error) {
+      if (error instanceof ChallengeTimeoutError) notify('timeout');
       // Navigation replaces the execution context while an interstitial redirects.
       if (!(error instanceof Error) || !/execution context.*destroyed|cannot find context/i.test(error.message)) throw error;
       readySince = 0;
     }
     await delay(Math.min(poll, Math.max(1, timeout - (Date.now() - start))), undefined, { signal: options.signal });
   }
+  notify('timeout');
   throw new ChallengeTimeoutError();
 }

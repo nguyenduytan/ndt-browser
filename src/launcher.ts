@@ -1,3 +1,4 @@
+import { normalizeProxy } from './config.js';
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { mkdir, mkdtemp, open, readFile, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -34,6 +35,7 @@ async function terminate(child: ChildProcess): Promise<void> {
 }
 
 export async function launch(options: BrowserOptions): Promise<LaunchedBrowser> {
+  const proxy = normalizeProxy(options.proxy);
   const executable = browserPath(options.executablePath);
   const temporary = !options.userDataDir;
   const profilePath = temporary ? await mkdtemp(join(tmpdir(), 'ndt-browser-')) : resolve(options.userDataDir!);
@@ -61,7 +63,7 @@ export async function launch(options: BrowserOptions): Promise<LaunchedBrowser> 
       ...(options.headless ? ['--headless=new'] : []),
       ...(options.reduceAutomationSignals !== false ? ['--disable-blink-features=AutomationControlled'] : []),
       ...(options.fingerprint?.locale ? [`--lang=${options.fingerprint.locale}`] : []),
-      ...(options.proxy ? [`--proxy-server=${options.proxy.server}`] : []),
+      ...(proxy ? [`--proxy-server=${proxy.server}`] : []),
       ...(options.args ?? []), 'about:blank',
     ];
     child = spawn(executable, args, { stdio: 'ignore', windowsHide: options.headless ?? false });

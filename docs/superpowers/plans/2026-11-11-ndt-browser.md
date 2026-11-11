@@ -20,34 +20,36 @@ remain accessible; shared helpers handle profiles, page configuration, fetch and
 
 ## 1. Configuration and launch
 
-- [ ] Add tests for unsupported drivers, unsafe launch argument conflicts, invalid
+- [x] Add tests for unsupported drivers, unsafe launch argument conflicts, invalid
   profile/proxy settings and invalid timeouts. `assert.throws(() => validateOptions({driver:'other'}))`.
-- [ ] Run `npm run test:unit`, observe missing behavior, implement src/config.ts and types.ts.
-- [ ] Test dedicated-profile locking and release with actual browser launch in launcher.ts.
-- [ ] Implement browser discovery, temporary directory cleanup and bounded startup wait.
+- [x] Run `npm run test:unit`, observe missing behavior, implement src/config.ts and types.ts.
+- [x] Test dedicated-profile locking and release with actual browser launch in launcher.ts.
+- [x] Implement browser discovery, temporary directory cleanup and bounded startup wait.
 
 ## 2. Dual-driver sessions
 
-- [ ] Add the same local fixture contract for `connect({driver:'puppeteer'})` and
+- [x] Add the same local fixture contract for `connect({driver:'puppeteer'})` and
   `connect({driver:'playwright'})`: navigation, native click/fill, extraction, newPage settings.
-- [ ] Implement session.ts and index.ts; use native typed Page/Browser/Context objects.
-- [ ] Verify native locale/timezone/viewport, resource blocking, persistent cookie reuse.
-- [ ] Verify remote close leaves existing page/browser alive, including setup failure.
+- [x] Implement session.ts and index.ts; use native typed Page/Browser/Context objects.
+- [x] Verify native locale/timezone/viewport, resource blocking, persistent cookie reuse.
+- [x] Verify remote close leaves existing page/browser alive, including setup failure.
 
 ## 3. Browser requests and extraction
 
-- [ ] Test cookie-authenticated POST returns `{method:'POST', body:{name:'NDT'}}` once.
-- [ ] Test request timeout, response size cap, missing required selector and invalid URL/body.
-- [ ] Implement page-tools.ts using page.evaluate, AbortController and bounded response reads.
-- [ ] Expose text/json response access, CSS text/attribute extraction and page selection.
+- [x] Test cookie-authenticated POST returns `{method:'POST', body:{name:'NDT'}}` once.
+- [x] Test request timeout, response size cap, missing required selector and invalid URL/body.
+- [x] Implement page-tools.ts using page.evaluate, AbortController and bounded response reads.
+- [x] Expose text/json response access, CSS text/attribute extraction and page selection.
 
 ## 4. Package and release
 
-- [ ] Implement minimal CLI and examples for each driver and API POST.
-- [ ] Document runtime choices, fingerprint limits, native API hooks, CORS and routing.
-- [ ] Build, run real browser tests, audit production dependencies, npm pack and clean install.
-- [ ] Initialize Git, commit, create GitHub repository, push and wait for CI.
-- [ ] Tag v0.1.0 and create GitHub release with npm-installable tarball and SHA256 checksum.
+- [x] Implement minimal CLI and examples for each driver and API POST.
+- [x] Document runtime choices, fingerprint limits, native API hooks, CORS and routing.
+- [x] Build, run real browser tests, audit production dependencies, npm pack and clean install.
+- [x] Initialize Git, commit, create GitHub repository, push and wait for CI.
+- [x] Tag v0.1.0 and create GitHub release with npm-installable tarball and SHA256 checksum.
 
 GitHub release is the installation channel for v0.1; npm registry publishing is optional
 and requires separate npm authentication. User has authorized Git push and release.
+
+Validation: 21 tests passed locally and on Windows/Linux/macOS/Docker CI run 42981580746. Docker headed/Xvfb passed for both drivers. Archive installed in a clean consumer. Release: https://github.com/nguyenduytan/ndt-browser/releases/tag/v0.1.0
